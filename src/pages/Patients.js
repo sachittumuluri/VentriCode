@@ -32,7 +32,7 @@ import {
   Compare,
   Favorite,
   Speed,
-  Pulse,
+  FavoriteBorder,
 } from '@mui/icons-material';
 import Plot from 'react-plotly.js';
 
@@ -149,7 +149,7 @@ const Patients = () => {
           </Grid>
           <Grid item xs={12} md={4}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Pulse color="primary" />
+              <FavoriteBorder color="primary" />
               <Typography variant="body2">
                 Heart Rate: <strong>{heartRate} bpm</strong>
               </Typography>
