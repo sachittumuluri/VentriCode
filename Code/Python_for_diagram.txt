@@ -1,0 +1,113 @@
+import pandas as pd
+df = pd.read_excel('C:\\Users\\jonat\\OneDrive\\Desktop\\Research\\Heart Rate\\Patient1.xlsx')
+y_list1 = df['ECG'].tolist()
+#print(y_list)
+
+x_list = list(range(0,4797,4))
+#print(x_list)
+
+#sick person 1
+
+import numpy as np
+import plotly.graph_objects as go
+
+#print graph for patient1
+fig = go.Figure(data=go.Scatter(x=x_list,y=y_list1))
+fig.update_layout(xaxis_title="Timestamp", yaxis_title="Amplitude")
+fig.show()
+
+#We can show that periodicity implies ellipticity of the time delay embedding. To do that we need to specify the embedding dimension  and the time delay  for the Takens embedding
+
+from gtda.time_series import SingleTakensEmbedding
+
+embedding_dimension_periodic = 3
+embedding_time_delay_periodic = 8
+stride = 10
+
+embedder_periodic = SingleTakensEmbedding(
+    parameters_type="fixed",
+    n_jobs=2,
+    time_delay=embedding_time_delay_periodic,
+    dimension=embedding_dimension_periodic,
+    stride=stride,
+)
+
+
+y_periodic_embedded = embedder_periodic.fit_transform(y_list1)
+print(f"Shape of embedded time series: {y_periodic_embedded.shape}")
+
+
+from gtda.plotting import plot_point_cloud
+
+plot_point_cloud(y_periodic_embedded)
+
+
+y_periodic_embedded = y_periodic_embedded[None, :, :]
+
+
+from gtda.homology import VietorisRipsPersistence
+
+# 0 - connected components, 1 - loops, 2 - voids
+homology_dimensions = [0, 1, 2]
+
+periodic_persistence = VietorisRipsPersistence(
+    homology_dimensions=homology_dimensions, n_jobs=6
+)
+print("Persistence diagram for periodic signal")
+periodic_persistence.fit_transform_plot(y_periodic_embedded)
+
+nonperiodic_persistence = VietorisRipsPersistence(
+    homology_dimensions=homology_dimensions, n_jobs=6
+)
+print("Persistence diagram for nonperiodic signal")
+nonperiodic_persistence.fit_transform_plot(y_nonperiodic_embedded);
+
+max_embedding_dimension = 30
+max_time_delay = 30
+stride = 5
+
+embedder_periodic = SingleTakensEmbedding(
+    parameters_type="search",
+    time_delay=max_time_delay,
+    dimension=max_embedding_dimension,
+    stride=stride,
+)
+
+
+def fit_embedder(embedder: SingleTakensEmbedding, y: np.ndarray, verbose: bool=True) -> np.ndarray:
+    """Fits a Takens embedder and displays optimal search parameters."""
+    y_embedded = embedder.fit_transform(y)
+
+    if verbose:
+        print(f"Shape of embedded time series: {y_embedded.shape}")
+        print(
+            f"Optimal embedding dimension is {embedder.dimension_} and time delay is {embedder.time_delay_}"
+        )
+
+    return y_embedded
+
+y_periodic_embedded = fit_embedder(embedder_periodic, y_list1)
+
+
+from sklearn.decomposition import PCA
+
+pca = PCA(n_components=3)
+y_periodic_embedded_pca = pca.fit_transform(y_periodic_embedded)
+plot_point_cloud(y_periodic_embedded_pca)
+
+
+y_periodic_embedded = y_periodic_embedded[None, :, :]
+
+
+homology_dimensions = [0, 1]  # I removed 3 from the brackets
+
+periodic_persistence = VietorisRipsPersistence(homology_dimensions=homology_dimensions)
+print("Persistence diagram for periodic signal")
+periodic_persistence.fit_transform_plot(y_periodic_embedded)
+
+nonperiodic_persistence = VietorisRipsPersistence(
+    homology_dimensions=homology_dimensions, n_jobs=6
+)
+print("Persistence diagram for nonperiodic signal")
+nonperiodic_persistence.fit_transform_plot(y_nonperiodic_embedded);
+
