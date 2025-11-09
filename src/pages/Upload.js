@@ -19,11 +19,18 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TextField,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
-import { CloudUpload, Assessment, MedicalServices, Timeline, ShowChart } from '@mui/icons-material';
+import { CloudUpload, Assessment, MedicalServices, Timeline, ShowChart, SmartToy, Cloud, Storage } from '@mui/icons-material';
 import { useDropzone } from 'react-dropzone';
 import axios from 'axios';
 import Plot from 'react-plotly.js';
+import { generateMedicalReport, getMedicalConsultation } from '../services/geminiService';
+import { storeECGAnalysis } from '../services/snowflakeService';
 
 const Upload = () => {
   const [uploading, setUploading] = useState(false);
@@ -32,6 +39,11 @@ const Upload = () => {
   const [uploadedFile, setUploadedFile] = useState(null);
   const [currentTab, setCurrentTab] = useState(0);
   const [ecgData, setEcgData] = useState(null);
+  const [aiReport, setAiReport] = useState(null);
+  const [consultationOpen, setConsultationOpen] = useState(false);
+  const [consultationQuestion, setConsultationQuestion] = useState('');
+  const [consultationAnswer, setConsultationAnswer] = useState('');
+  const [loadingAI, setLoadingAI] = useState(false);
 
   const onDrop = useCallback((acceptedFiles) => {
     const file = acceptedFiles[0];
@@ -58,6 +70,7 @@ const Upload = () => {
     setError(null);
     setResult(null);
     setEcgData(null);
+    setAiReport(null);
 
     const formData = new FormData();
     formData.append('file', uploadedFile);
@@ -71,12 +84,36 @@ const Upload = () => {
 
       setResult(response.data);
       
-      // Generate sample ECG data for visualization (in real app, this would come from backend)
+      // Generate sample ECG data for visualization
       const sampleECG = Array.from({ length: response.data.data_points }, (_, i) => ({
         time: i * 4, // 4ms sampling
         amplitude: Math.sin(i * 0.1) * 1.2 + Math.random() * 0.3 + (response.data.classification === 'Normal' ? 0 : Math.sin(i * 0.05) * 0.8)
       }));
       setEcgData(sampleECG);
+
+      // Generate AI medical report
+      setLoadingAI(true);
+      try {
+        const aiResponse = await axios.post('http://localhost:8000/ai-medical-report', {
+          analysisData: response.data
+        });
+        setAiReport(aiResponse.data.medicalReport);
+      } catch (aiError) {
+        console.error('AI Report Error:', aiError);
+        setAiReport('AI analysis temporarily unavailable.');
+      } finally {
+        setLoadingAI(false);
+      }
+
+      // Store analysis in Snowflake
+      try {
+        await axios.post('http://localhost:8000/store-analysis', {
+          patientData: { patient_id: response.data.patient_id },
+          analysisResults: response.data
+        });
+      } catch (storageError) {
+        console.error('Storage Error:', storageError);
+      }
       
     } catch (err) {
       setError(err.response?.data?.detail || 'Analysis failed. Please try again.');
@@ -90,7 +127,25 @@ const Upload = () => {
     setResult(null);
     setError(null);
     setEcgData(null);
+    setAiReport(null);
     setCurrentTab(0);
+  };
+
+  const handleConsultation = async () => {
+    if (!consultationQuestion.trim() || !result) return;
+    
+    setLoadingAI(true);
+    try {
+      const response = await axios.post('http://localhost:8000/ai-medical-consultation', {
+        question: consultationQuestion,
+        patientData: result
+      });
+      setConsultationAnswer(response.data.answer);
+    } catch (error) {
+      setConsultationAnswer('I apologize, but I cannot provide medical advice at this time. Please consult with your healthcare provider.');
+    } finally {
+      setLoadingAI(false);
+    }
   };
 
   const ClinicalResultsPanel = ({ data, ecgSignal }) => {
