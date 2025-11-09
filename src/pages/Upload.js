@@ -25,12 +25,10 @@ import {
   DialogContent,
   DialogActions,
 } from '@mui/material';
-import { CloudUpload, Assessment, MedicalServices, Timeline, ShowChart, SmartToy, Cloud, Storage } from '@mui/icons-material';
+import { CloudUpload, Assessment, MedicalServices, Timeline, ShowChart, SmartToy } from '@mui/icons-material';
 import { useDropzone } from 'react-dropzone';
 import axios from 'axios';
 import Plot from 'react-plotly.js';
-import { generateMedicalReport, getMedicalConsultation } from '../services/geminiService';
-import { storeECGAnalysis } from '../services/snowflakeService';
 
 const Upload = () => {
   const [uploading, setUploading] = useState(false);
@@ -105,7 +103,7 @@ const Upload = () => {
         setLoadingAI(false);
       }
 
-      // Store analysis in Snowflake
+      // Store analysis locally
       try {
         await axios.post('http://localhost:8000/store-analysis', {
           patientData: { patient_id: response.data.patient_id },

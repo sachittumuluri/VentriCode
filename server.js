@@ -4,9 +4,33 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const app = express();
 const port = 8000;
 
-// Initialize Gemini AI
-const genAI = new GoogleGenerativeAI('API CODE NEEDED');
-const geminiModel = genAI.getGenerativeModel({ model: 'gemini-pro' });
+// Initialize Gemini AI with fallback
+const genAI = new GoogleGenerativeAI('AIzaSyAFAntHQQ75sBLYm8-VBBw9fD6SH2I5DtA');
+let geminiModel;
+
+// Try different models in order of preference
+const models = ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-pro', 'gemini-pro-vision'];
+
+async function initializeGemini() {
+  for (const modelName of models) {
+    try {
+      geminiModel = genAI.getGenerativeModel({ model: modelName });
+      // Test the model with a simple request
+      await geminiModel.generateContent('test');
+      console.log(`✅ Gemini initialized with model: ${modelName}`);
+      return true;
+    } catch (error) {
+      console.log(`❌ Model ${modelName} failed: ${error.message}`);
+      continue;
+    }
+  }
+  console.log('⚠️ All Gemini models failed, using fallback mode');
+  geminiModel = null;
+  return false;
+}
+
+// Initialize Gemini on startup
+initializeGemini();
 
 app.use(cors());
 app.use(express.json());
@@ -25,28 +49,33 @@ app.get('/stats', async (req, res) => {
     };
 
     // Use Gemini to provide insights on the statistics
-    const geminiPrompt = `
-      As a medical data analyst, review these cardiac diagnostic statistics and provide key insights:
-      
-      Total Analyses: ${baseStats.total_analyses}
-      Normal Cases: ${baseStats.normal_cases}
-      Abnormal Cases: ${baseStats.abnormal_cases}
-      Accuracy Rate: ${baseStats.accuracy_rate}%
-      Critical Cases: ${baseStats.critical_cases}
-      
-      Provide brief insights on:
-      1. System performance trends
-      2. Risk distribution patterns  
-      3. Recommendations for improvement
-      
-      Keep response under 200 characters for dashboard display.
-    `;
+    if (geminiModel) {
+      try {
+        const geminiPrompt = `
+          As a medical data analyst, review these cardiac diagnostic statistics and provide key insights:
+          
+          Total Analyses: ${baseStats.total_analyses}
+          Normal Cases: ${baseStats.normal_cases}
+          Abnormal Cases: ${baseStats.abnormal_cases}
+          Accuracy Rate: ${baseStats.accuracy_rate}%
+          Critical Cases: ${baseStats.critical_cases}
+          
+          Provide brief insights on:
+          1. System performance trends
+          2. Risk distribution patterns  
+          3. Recommendations for improvement
+          
+          Keep response under 200 characters for dashboard display.
+        `;
 
-    try {
-      const geminiResult = await geminiModel.generateContent(geminiPrompt);
-      baseStats.ai_insights = geminiResult.response.text().substring(0, 200);
-    } catch (error) {
-      baseStats.ai_insights = 'System performing within normal parameters';
+        const geminiResult = await geminiModel.generateContent(geminiPrompt);
+        baseStats.ai_insights = geminiResult.response.text().substring(0, 200);
+      } catch (error) {
+        console.log('Gemini stats error:', error.message);
+        baseStats.ai_insights = 'AI insights temporarily unavailable';
+      }
+    } else {
+      baseStats.ai_insights = 'AI insights temporarily unavailable';
     }
 
     res.json(baseStats);
@@ -90,34 +119,39 @@ app.post('/analyze', async (req, res) => {
     };
 
     // Use Gemini to enhance the analysis
-    const geminiPrompt = `
-      As a cardiologist expert in topological data analysis, review this ECG analysis and provide enhanced insights:
-      
-      Patient ID: ${analysisData.patient_id}
-      Classification: ${analysisData.classification}
-      Risk Score: ${analysisData.risk_score.toFixed(3)}
-      H0 Persistence: ${analysisData.features.h0_persistence.toFixed(4)}
-      H1 Persistence: ${analysisData.features.h1_persistence.toFixed(4)}
-      
-      Provide:
-      1. Enhanced risk assessment (0-100%)
-      2. Clinical confidence level
-      3. Key topological indicators
-      4. Recommended follow-up timing
-      5. Specific concerns to monitor
-      
-      Return as JSON with keys: enhancedRisk, clinicalConfidence, keyIndicators, followUp, concerns
-    `;
+    if (geminiModel) {
+      try {
+        const geminiPrompt = `
+          As a cardiologist expert in topological data analysis, review this ECG analysis and provide enhanced insights:
+          
+          Patient ID: ${analysisData.patient_id}
+          Classification: ${analysisData.classification}
+          Risk Score: ${analysisData.risk_score.toFixed(3)}
+          H0 Persistence: ${analysisData.features.h0_persistence.toFixed(4)}
+          H1 Persistence: ${analysisData.features.h1_persistence.toFixed(4)}
+          
+          Provide:
+          1. Enhanced risk assessment (0-100%)
+          2. Clinical confidence level
+          3. Key topological indicators
+          4. Recommended follow-up timing
+          5. Specific concerns to monitor
+          
+          Return as JSON with keys: enhancedRisk, clinicalConfidence, keyIndicators, followUp, concerns
+        `;
 
-    try {
-      const geminiResult = await geminiModel.generateContent(geminiPrompt);
-      const geminiInsights = geminiResult.response.text();
-      
-      // Parse Gemini insights (in production, would use structured JSON response)
-      analysisData.geminiInsights = geminiInsights;
-      analysisData.enhancedByAI = true;
-    } catch (geminiError) {
-      console.log('Gemini unavailable, using standard analysis');
+        const geminiResult = await geminiModel.generateContent(geminiPrompt);
+        const geminiInsights = geminiResult.response.text();
+        
+        // Parse Gemini insights (in production, would use structured JSON response)
+        analysisData.geminiInsights = geminiInsights;
+        analysisData.enhancedByAI = true;
+      } catch (geminiError) {
+        console.log('Gemini analysis error:', geminiError.message);
+        analysisData.geminiInsights = 'AI enhancement temporarily unavailable';
+        analysisData.enhancedByAI = false;
+      }
+    } else {
       analysisData.geminiInsights = 'AI enhancement temporarily unavailable';
       analysisData.enhancedByAI = false;
     }
@@ -136,6 +170,14 @@ app.post('/analyze', async (req, res) => {
 app.post('/ai-medical-report', async (req, res) => {
   try {
     const { analysisData } = req.body;
+    
+    if (!geminiModel) {
+      return res.json({
+        success: false,
+        medicalReport: 'AI analysis temporarily unavailable. Please consult with cardiologist directly.',
+        error: 'Gemini model not initialized'
+      });
+    }
     
     const prompt = `
       As a cardiologist, analyze this ECG topological data for ventricular tachycardia detection:
@@ -172,6 +214,14 @@ app.post('/ai-medical-consultation', async (req, res) => {
   try {
     const { question, patientData } = req.body;
     
+    if (!geminiModel) {
+      return res.json({
+        success: false,
+        answer: 'I apologize, but I cannot provide medical advice at this time. Please consult with your healthcare provider.',
+        error: 'Gemini model not initialized'
+      });
+    }
+    
     const prompt = `
       As a cardiologist, answer this medical question about ECG results:
       
@@ -206,25 +256,24 @@ app.post('/ai-medical-consultation', async (req, res) => {
   }
 });
 
-// Snowflake data storage endpoint
+// Mock data storage endpoint
 app.post('/store-analysis', (req, res) => {
   try {
     const { patientData, analysisResults } = req.body;
     
-    console.log('Storing analysis in Snowflake:', {
+    console.log('Analysis stored:', {
       patientId: patientData.patient_id,
       classification: analysisResults.classification,
       timestamp: new Date().toISOString()
     });
     
-    // Mock Snowflake storage
     res.json({
       success: true,
-      message: 'Analysis stored successfully in Snowflake',
-      recordId: 'SF_' + Date.now()
+      message: 'Analysis stored successfully',
+      recordId: 'LOCAL_' + Date.now()
     });
   } catch (error) {
-    console.error('Snowflake storage error:', error);
+    console.error('Storage error:', error);
     res.json({
       success: false,
       error: error.message
@@ -232,10 +281,10 @@ app.post('/store-analysis', (req, res) => {
   }
 });
 
-// Enhanced cross-patient analytics with Gemini insights
-app.get('/cross-patient-analytics', async (req, res) => {
+// Mock analytics endpoint
+app.get('/cross-patient-analytics', (req, res) => {
   try {
-    const baseAnalytics = {
+    const analytics = {
       totalPatients: 1250,
       avgRiskScore: 12.3,
       highRiskPatients: 187,
@@ -253,79 +302,13 @@ app.get('/cross-patient-analytics', async (req, res) => {
       }
     };
 
-    // Use Gemini to provide medical insights on the analytics
-    const geminiPrompt = `
-      As a cardiac epidemiologist, analyze this population health data and provide key clinical insights:
-      
-      Total Patients: ${baseAnalytics.totalPatients}
-      High Risk Patients: ${baseAnalytics.highRiskPatients}
-      Average Risk Score: ${baseAnalytics.avgRiskScore}
-      VT Correlation: ${(baseAnalytics.topologicalPatterns.correlationWithVT * 100).toFixed(1)}%
-      
-      Age Group Risk Trends:
-      - 45-60: ${baseAnalytics.demographicInsights.ageGroups['45-60'].avgRisk}
-      - 61-75: ${baseAnalytics.demographicInsights.ageGroups['61-75'].avgRisk}
-      - 75+: ${baseAnalytics.demographicInsights.ageGroups['75+'].avgRisk}
-      
-      Provide 2-3 bullet points of key clinical insights for medical researchers.
-    `;
-
-    try {
-      const geminiResult = await geminiModel.generateContent(geminiPrompt);
-      baseAnalytics.clinicalInsights = geminiResult.response.text();
-    } catch (error) {
-      baseAnalytics.clinicalInsights = '• Risk increases with age\n• Strong correlation between H1 persistence and VT\n• Early detection critical for high-risk groups';
-    }
-
-    res.json(baseAnalytics);
+    res.json(analytics);
   } catch (error) {
     console.error('Analytics error:', error);
     res.json({ error: error.message });
   }
 });
 
-// Vultr cloud metrics endpoint
-app.get('/cloud-metrics', (req, res) => {
-  try {
-    const metrics = {
-      cpu: { frontend: 45, backend: 78, database: 32 },
-      memory: { frontend: 60, backend: 85, database: 55 },
-      gpu: { utilization: 92, memoryUsed: '3.2GB', temperature: '72°C' },
-      network: { bandwidthIn: '125 MB/s', bandwidthOut: '89 MB/s', requestsPerSecond: 34 },
-      uptime: { frontend: '99.98%', backend: '99.95%', database: '99.99%' }
-    };
-    
-    res.json(metrics);
-  } catch (error) {
-    console.error('Cloud metrics error:', error);
-    res.json({ error: error.message });
-  }
-});
-
-// Deployment status endpoint
-app.get('/deployment-status', (req, res) => {
-  try {
-    const status = {
-      deployed: true,
-      url: 'https://ventricode.tech',
-      environment: 'production',
-      lastDeployed: '2024-11-09T02:30:00Z',
-      version: '1.2.0',
-      healthChecks: {
-        frontend: 'healthy',
-        backend: 'healthy',
-        database: 'healthy',
-        sslCertificate: 'valid'
-      }
-    };
-    
-    res.json(status);
-  } catch (error) {
-    console.error('Deployment status error:', error);
-    res.json({ error: error.message });
-  }
-});
-
 app.listen(port, () => {
-  console.log(`Mock server running at http://localhost:${port}`);
+  console.log(`VentriCode server running at http://localhost:${port}`);
 });
